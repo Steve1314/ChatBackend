@@ -21,8 +21,9 @@ router.post("/chats/:chatId/messages", async (req, res) => {
 
     const chat = await Chat.findOne({
       _id: req.params.chatId,
-      members: sender._id,
+      members: { $in: [sender._id] },
     });
+
     if (!chat) return res.status(403).json({ error: "Not in chat" });
 
     const mediaDocs = mediaIds.length
@@ -40,9 +41,9 @@ router.post("/chats/:chatId/messages", async (req, res) => {
     await chat.save();
 
     const populated = await msg.populate([
-  { path: "sender", select: "name email avatarUrl" },
-  { path: "media" }
-]);
+      { path: "sender", select: "name email avatarUrl" },
+      { path: "media" },
+    ]);
 
     const io = req.app.get("io");
     if (io) io.to(String(chat._id)).emit("newMessage", populated);
