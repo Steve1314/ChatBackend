@@ -101,6 +101,7 @@ router.get("/:id/messages", async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 });
+
 router.post("/:id/messages", async (req, res) => {
   try {
     const { id } = req.params;
@@ -110,10 +111,16 @@ router.post("/:id/messages", async (req, res) => {
       return res.status(400).json({ error: "senderEmail is required" });
     }
 
-    // Create message
+    // Resolve sender email to user _id
+    const senderUser = await User.findOne({ email: senderEmail });
+    if (!senderUser) {
+      return res.status(404).json({ error: "Sender user not found" });
+    }
+
+    // Create message (use ObjectId for sender)
     const message = await Message.create({
       chat: id,
-      sender: senderEmail,
+      sender: senderUser._id,
       text: text || "",
       media: mediaIds || [],
     });
@@ -123,7 +130,7 @@ router.post("/:id/messages", async (req, res) => {
 
     // Emit to all clients in chat room
     const io = req.app.get("io");
-    io.to(id).emit("newMessage", message);
+    if (io) io.to(id).emit("newMessage", message);
 
     res.status(201).json(message);
   } catch (e) {
