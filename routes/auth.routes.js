@@ -15,14 +15,30 @@ router.post("/register", async (req, res) => {
       return res.status(400).json({ error: "name, email, password required" });
 
     const exists = await User.findOne({ email });
-    if (exists) return res.status(409).json({ error: "Email already registered" });
+    if (exists)
+      return res.status(409).json({ error: "Email already registered" });
 
     const user = await User.create({ name, email, password });
-    res.status(201).json({ user });
+
+    const token = jwt.sign(
+      { id: user._id },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    res.status(201).json({
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+      },
+    });
   } catch (e) {
     res.status(500).json({ error: "Server error" });
   }
 });
+
 
 // POST /auth/login
 router.post("/login", async (req, res) => {
@@ -34,8 +50,22 @@ router.post("/login", async (req, res) => {
   const ok = await user.comparePassword(password);
   if (!ok) return res.status(401).json({ error: "Invalid credentials" });
 
-  res.json({ user });
+  const token = jwt.sign(
+    { id: user._id },
+    process.env.JWT_SECRET,
+    { expiresIn: "7d" }
+  );
+
+  res.json({
+    token,
+    user: {
+      id: user._id,
+      name: user.name,
+      email: user.email,
+    },
+  });
 });
+
 
 // GET /auth/me
 router.get("/me", auth, async (req, res) => {

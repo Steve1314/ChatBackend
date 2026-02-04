@@ -101,5 +101,35 @@ router.get("/:id/messages", async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 });
+router.post("/:id/messages", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { senderEmail, text, mediaIds } = req.body;
+
+    if (!senderEmail) {
+      return res.status(400).json({ error: "senderEmail is required" });
+    }
+
+    // Create message
+    const message = await Message.create({
+      chat: id,
+      sender: senderEmail,
+      text: text || "",
+      media: mediaIds || [],
+    });
+
+    // Update chat lastMessageAt
+    await Chat.findByIdAndUpdate(id, { lastMessageAt: new Date() });
+
+    // Emit to all clients in chat room
+    const io = req.app.get("io");
+    io.to(id).emit("newMessage", message);
+
+    res.status(201).json(message);
+  } catch (e) {
+    console.error("POST /chats/:id/messages error:", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
 
 export default router;
