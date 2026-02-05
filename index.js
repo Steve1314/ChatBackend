@@ -14,6 +14,7 @@ import messagesRoutes from "./routes/messages.routes.js";
 import contactsRoutes from "./routes/contacts.routes.js";
 import mediaRoutes from "./routes/media.routes.js";
 import notificationsRoutes from "./routes/notifications.routes.js";
+import callsRoutes from "./routes/calls.routes.js";
 
 dotenv.config();
 
@@ -56,6 +57,7 @@ app.use("/", messagesRoutes); // /chats/:chatId/messages & /messages/:id
 app.use("/contacts", contactsRoutes);
 app.use("/media", mediaRoutes);
 app.use("/notifications", notificationsRoutes);
+app.use("/calls", callsRoutes);
 
 app.get("/health", (req, res) => res.json({ ok: true }));
 
@@ -116,36 +118,75 @@ io.on("connection", (socket) => {
     socket.to(String(chatId)).emit("stopTyping", { chatId, email });
   });
 
-  // ------------------- CALLING FEATURE -------------------
-  socket.on("callUser", ({ toEmail, fromEmail, offer }) => {
+  // ------------------- MESSAGE READ RECEIPTS -------------------
+  socket.on("messageRead", ({ chatId, messageId, email }) => {
+    if (!chatId || !messageId || !email) return;
+    socket.to(String(chatId)).emit("messageReadReceipt", {
+      messageId,
+      readBy: email,
+      readAt: new Date()
+    });
+  });
+
+  socket.on("messagesDelivered", ({ chatId, messageIds }) => {
+    if (!chatId || !messageIds) return;
+    socket.to(String(chatId)).emit("deliveryReceipt", {
+      messageIds,
+      deliveredAt: new Date()
+    });
+  });
+
+  // ------------------- CALLING FEATURE (WebRTC Signaling) -------------------
+  socket.on("initiateCall", ({ toEmail, fromEmail, chatId, callType = "audio" }) => {
+    if (!toEmail || !fromEmail || !chatId) return;
+    const targetId = getSocketIdByEmail(toEmail);
+    if (targetId) {
+      io.to(targetId).emit("incomingCall", {
+        fromEmail,
+        chatId,
+        callType,
+        timestamp: new Date()
+      });
+    }
+  });
+
+  socket.on("callOffer", ({ toEmail, fromEmail, offer, callId }) => {
     if (!toEmail || !fromEmail || !offer) return;
     const targetId = getSocketIdByEmail(toEmail);
     if (targetId) {
-      io.to(targetId).emit("incomingCall", { fromEmail, offer });
+      io.to(targetId).emit("callOffer", { fromEmail, offer, callId });
     }
   });
 
-  socket.on("answerCall", ({ toEmail, answer }) => {
+  socket.on("callAnswer", ({ toEmail, answer, callId }) => {
     if (!toEmail || !answer) return;
     const targetId = getSocketIdByEmail(toEmail);
     if (targetId) {
-      io.to(targetId).emit("callAnswered", answer);
+      io.to(targetId).emit("callAnswer", { answer, callId });
     }
   });
 
-  socket.on("iceCandidate", ({ toEmail, candidate }) => {
+  socket.on("iceCandidate", ({ toEmail, candidate, callId }) => {
     if (!toEmail || !candidate) return;
     const targetId = getSocketIdByEmail(toEmail);
     if (targetId) {
-      io.to(targetId).emit("iceCandidate", candidate);
+      io.to(targetId).emit("iceCandidate", { candidate, callId });
     }
   });
 
-  socket.on("endCall", ({ toEmail }) => {
+  socket.on("endCall", ({ toEmail, callId }) => {
     if (!toEmail) return;
     const targetId = getSocketIdByEmail(toEmail);
     if (targetId) {
-      io.to(targetId).emit("callEnded");
+      io.to(targetId).emit("callEnded", { callId });
+    }
+  });
+
+  socket.on("rejectCall", ({ toEmail, callId, reason = "user-declined" }) => {
+    if (!toEmail) return;
+    const targetId = getSocketIdByEmail(toEmail);
+    if (targetId) {
+      io.to(targetId).emit("callRejected", { callId, reason });
     }
   });
 
