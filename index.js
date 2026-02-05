@@ -40,7 +40,7 @@ app.use(
   cors({
     origin: allowedOrigins.includes("*") ? "*" : allowedOrigins,
     credentials: true,
-  })
+  }),
 );
 
 app.use(express.json({ limit: "10mb" }));
@@ -131,7 +131,7 @@ io.on("connection", (socket) => {
     socket.to(String(chatId)).emit("messageReadReceipt", {
       messageId,
       readBy: email,
-      readAt: new Date()
+      readAt: new Date(),
     });
   });
 
@@ -139,21 +139,29 @@ io.on("connection", (socket) => {
     if (!chatId || !messageIds) return;
     socket.to(String(chatId)).emit("deliveryReceipt", {
       messageIds,
-      deliveredAt: new Date()
+      deliveredAt: new Date(),
     });
   });
 
   // ------------------- CALLING FEATURE (WebRTC Signaling) -------------------
 
   // Initiate call
-  socket.on("initiateCall", ({ toEmail, fromEmail, chatId, callType = "audio" }) => {
-    if (!toEmail || !fromEmail || !chatId) return;
-    const targetId = getSocketIdByEmail(toEmail);
-    if (targetId) {
-      io.to(targetId).emit("incomingCall", { fromEmail, chatId, callType, timestamp: new Date() });
-      console.log(`📞 Incoming call from ${fromEmail} to ${toEmail}`);
-    }
-  });
+  socket.on(
+    "initiateCall",
+    ({ toEmail, fromEmail, chatId, callType = "audio" }) => {
+      if (!toEmail || !fromEmail || !chatId) return;
+      const targetId = getSocketIdByEmail(toEmail);
+      if (targetId) {
+        io.to(targetId).emit("incomingCall", {
+          fromEmail,
+          chatId,
+          callType,
+          timestamp: new Date(),
+        });
+        console.log(`📞 Incoming call from ${fromEmail} to ${toEmail}`);
+      }
+    },
+  );
 
   // Call offer
   socket.on("callOffer", ({ toEmail, fromEmail, offer, callId }) => {
@@ -191,6 +199,14 @@ io.on("connection", (socket) => {
     }
   });
 
+  // Add to your socket.io backend
+  socket.on("muteState", (data) => {
+    socket.to(data.toEmail).emit("muteState", {
+      isMuted: data.isMuted,
+      callId: data.callId,
+    });
+  });
+
   // End call
   socket.on("endCall", ({ toEmail, callId }) => {
     if (!toEmail) return;
@@ -214,14 +230,17 @@ io.on("connection", (socket) => {
       emailToSocketId.delete(email);
       lastSeenMap.set(email, Date.now());
 
-      io.emit("userStatus", { email, online: false, lastSeen: lastSeenMap.get(email) });
+      io.emit("userStatus", {
+        email,
+        online: false,
+        lastSeen: lastSeenMap.get(email),
+      });
       io.emit("presence", { online: Array.from(onlineUsers) });
     }
 
     console.log("❌ Client disconnected:", socket.id);
   });
 });
-
 
 // ------------------ START SERVER ------------------
 const PORT = process.env.PORT || 5000;
