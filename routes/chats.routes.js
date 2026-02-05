@@ -1,7 +1,11 @@
 import express from "express";
+import jwt from "jsonwebtoken";
+import dotenv from "dotenv";
 import Chat from "../model/Chat.js";
 import Message from "../model/Message.js";
 import User from "../model/User.js";
+
+dotenv.config();
 
 const router = express.Router();
 
@@ -10,11 +14,32 @@ const router = express.Router();
 ========================= */
 router.get("/", async (req, res) => {
   try {
-    const { email } = req.query;
-    if (!email) return res.status(400).json({ error: "email is required" });
+    // Try to resolve user from Authorization Bearer token first
+    const header = req.headers.authorization || "";
+    const token = header.startsWith("Bearer ") ? header.slice(7) : null;
 
-    const me = await User.findOne({ email });
-    if (!me) return res.status(404).json({ error: "User not found" });
+    let me = null;
+
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        if (decoded && decoded.id) {
+          me = await User.findById(decoded.id);
+        }
+      } catch (e) {
+        // ignore token errors and fallback to email query
+        me = null;
+      }
+    }
+
+    // Fallback to ?email=... query param if token wasn't provided or invalid
+    if (!me) {
+      const { email } = req.query;
+      if (!email) return res.status(400).json({ error: "email is required" });
+
+      me = await User.findOne({ email });
+      if (!me) return res.status(404).json({ error: "User not found" });
+    }
 
     const chats = await Chat.find({ members: me._id })
       .sort({ lastMessageAt: -1 })

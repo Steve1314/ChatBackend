@@ -61,11 +61,13 @@ app.use("/calls", callsRoutes);
 
 app.get("/health", (req, res) => res.json({ ok: true }));
 
-// ------------------ PRESENCE STORAGE ------------------
-// ------------------ PRESENCE STORAGE ------------------
+// ------------------- PRESENCE STORAGE -------------------
 const onlineUsers = new Set(); // set of emails
 const emailToSocketId = new Map(); // email => socket.id
 const lastSeenMap = new Map(); // email => timestamp (ms)
+
+// Queue ICE candidates for offline users
+const iceCandidateQueue = new Map(); // email => [{ candidate, callId, fromEmail }]
 
 app.set("onlineUsers", onlineUsers);
 app.set("io", io);
@@ -84,7 +86,6 @@ io.on("connection", (socket) => {
     onlineUsers.add(email);
     emailToSocketId.set(email, socket.id);
 
-    // if user never had lastSeen -> keep null
     if (!lastSeenMap.has(email)) lastSeenMap.set(email, null);
 
     // send status update
@@ -93,9 +94,15 @@ io.on("connection", (socket) => {
       online: true,
       lastSeen: lastSeenMap.get(email),
     });
-
-    // keep existing presence too
     io.emit("presence", { online: Array.from(onlineUsers) });
+
+    // Send any queued ICE candidates
+    const queued = iceCandidateQueue.get(email) || [];
+    queued.forEach(({ candidate, callId, fromEmail }) => {
+      io.to(socket.id).emit("iceCandidate", { candidate, callId, fromEmail });
+      console.log(`✅ Sent queued ICE candidate to ${email}`);
+    });
+    iceCandidateQueue.delete(email);
   });
 
   // ------------------- CHAT ROOMS -------------------
@@ -137,57 +144,65 @@ io.on("connection", (socket) => {
   });
 
   // ------------------- CALLING FEATURE (WebRTC Signaling) -------------------
+
+  // Initiate call
   socket.on("initiateCall", ({ toEmail, fromEmail, chatId, callType = "audio" }) => {
     if (!toEmail || !fromEmail || !chatId) return;
     const targetId = getSocketIdByEmail(toEmail);
     if (targetId) {
-      io.to(targetId).emit("incomingCall", {
-        fromEmail,
-        chatId,
-        callType,
-        timestamp: new Date()
-      });
+      io.to(targetId).emit("incomingCall", { fromEmail, chatId, callType, timestamp: new Date() });
+      console.log(`📞 Incoming call from ${fromEmail} to ${toEmail}`);
     }
   });
 
+  // Call offer
   socket.on("callOffer", ({ toEmail, fromEmail, offer, callId }) => {
     if (!toEmail || !fromEmail || !offer) return;
     const targetId = getSocketIdByEmail(toEmail);
     if (targetId) {
       io.to(targetId).emit("callOffer", { fromEmail, offer, callId });
+      console.log(`📋 Forwarded callOffer from ${fromEmail} to ${toEmail}`);
     }
   });
 
-  socket.on("callAnswer", ({ toEmail, answer, callId }) => {
+  // Call answer
+  socket.on("callAnswer", ({ toEmail, fromEmail, answer, callId }) => {
     if (!toEmail || !answer) return;
     const targetId = getSocketIdByEmail(toEmail);
     if (targetId) {
-      io.to(targetId).emit("callAnswer", { answer, callId });
+      io.to(targetId).emit("callAnswer", { fromEmail, answer, callId });
+      console.log(`📋 Forwarded callAnswer from ${fromEmail} to ${toEmail}`);
     }
   });
 
-  socket.on("iceCandidate", ({ toEmail, candidate, callId }) => {
+  // ICE candidate
+  socket.on("iceCandidate", ({ toEmail, candidate, callId, fromEmail }) => {
     if (!toEmail || !candidate) return;
+
     const targetId = getSocketIdByEmail(toEmail);
     if (targetId) {
-      io.to(targetId).emit("iceCandidate", { candidate, callId });
+      io.to(targetId).emit("iceCandidate", { candidate, callId, fromEmail });
+      console.log(`🧊 ICE candidate sent from ${fromEmail} to ${toEmail}`);
+    } else {
+      // Queue candidate for later if callee offline
+      if (!iceCandidateQueue.has(toEmail)) iceCandidateQueue.set(toEmail, []);
+      iceCandidateQueue.get(toEmail).push({ candidate, callId, fromEmail });
+      console.log(`🧊 ICE candidate queued for offline user ${toEmail}`);
     }
   });
 
+  // End call
   socket.on("endCall", ({ toEmail, callId }) => {
     if (!toEmail) return;
     const targetId = getSocketIdByEmail(toEmail);
-    if (targetId) {
-      io.to(targetId).emit("callEnded", { callId });
-    }
+    if (targetId) io.to(targetId).emit("callEnded", { callId });
   });
 
+  // Reject call
   socket.on("rejectCall", ({ toEmail, callId, reason = "user-declined" }) => {
     if (!toEmail) return;
     const targetId = getSocketIdByEmail(toEmail);
-    if (targetId) {
-      io.to(targetId).emit("callRejected", { callId, reason });
-    }
+    if (targetId) io.to(targetId).emit("callRejected", { callId, reason });
   });
 
   // ------------------- DISCONNECT -------------------
@@ -197,16 +212,9 @@ io.on("connection", (socket) => {
     if (email) {
       onlineUsers.delete(email);
       emailToSocketId.delete(email);
-
-      // set last seen at disconnect
       lastSeenMap.set(email, Date.now());
 
-      io.emit("userStatus", {
-        email,
-        online: false,
-        lastSeen: lastSeenMap.get(email),
-      });
-
+      io.emit("userStatus", { email, online: false, lastSeen: lastSeenMap.get(email) });
       io.emit("presence", { online: Array.from(onlineUsers) });
     }
 
