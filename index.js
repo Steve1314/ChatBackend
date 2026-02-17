@@ -29,7 +29,9 @@ const allowedOrigins = process.env.CLIENT_ORIGIN
 // ------------------ SOCKET.IO ------------------
 const io = new SocketIOServer(server, {
   cors: {
-    origin: allowedOrigins.includes("*") ? "*" : allowedOrigins,
+    origin: (origin, callback) => {
+      callback(null, true); // allow all origins
+    },
     methods: ["GET", "POST"],
     credentials: true,
   },
@@ -38,10 +40,13 @@ const io = new SocketIOServer(server, {
 // ------------------ MIDDLEWARES ------------------
 app.use(
   cors({
-    origin: allowedOrigins.includes("*") ? "*" : allowedOrigins,
+    origin: (origin, callback) => {
+      callback(null, true); // allow all origins
+    },
     credentials: true,
-  }),
+  })
 );
+
 
 app.use(express.json({ limit: "10mb" }));
 app.use(morgan("dev"));
