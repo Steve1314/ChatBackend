@@ -21,17 +21,14 @@ dotenv.config();
 const app = express();
 const server = http.createServer(app);
 
-// ------------------ CORS ORIGINS ------------------
-const allowedOrigins = process.env.CLIENT_ORIGIN
-  ? process.env.CLIENT_ORIGIN.split(",").map((s) => s.trim())
-  : ["*"];
+// ------------------ CORS: Allow All Origins ------------------
+// Force allow all origins to accept requests from any client.
+const allowedOrigins = ["*"];
 
 // ------------------ SOCKET.IO ------------------
 const io = new SocketIOServer(server, {
   cors: {
-    origin: (origin, callback) => {
-      callback(null, true); // allow all origins
-    },
+    origin: allowedOrigins.includes("*") ? "*" : allowedOrigins,
     methods: ["GET", "POST"],
     credentials: true,
   },
@@ -40,13 +37,10 @@ const io = new SocketIOServer(server, {
 // ------------------ MIDDLEWARES ------------------
 app.use(
   cors({
-    origin: (origin, callback) => {
-      callback(null, true); // allow all origins
-    },
+    origin: allowedOrigins.includes("*") ? "*" : allowedOrigins,
     credentials: true,
-  })
+  }),
 );
-
 
 app.use(express.json({ limit: "10mb" }));
 app.use(morgan("dev"));
